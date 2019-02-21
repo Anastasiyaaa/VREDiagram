@@ -1,0 +1,516 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+	<script src="https://code.jquery.com/jquery-3.3.1.js"></script>
+	<script>
+		var baseurl = "";
+		let BASE_URL = 'http://dev2.vqs.net:8080';
+		let arreyFields = ['XITOR_KEY', 'VRE_TOP_HEIGHT', 'VRE_BOTTOM_HEIGHT', 'VRE_STATUS'];
+		let ARREY_TENANT_FIELDS = ['XITOR_KEY', 'T_TENANT_CATEGORY_AND_ID', 'T_CARRIER_CATEGORY_CODE'];
+		
+		//LightSalmon, lightGreen, LightGoldenrod1, lightBlue, lightPink, LightSlateBlue	
+		var COLORS = ['#FFA07A', '#90EE90', '#FFEC8B', '#ADD8E6', '#FFB6C1', '#8470FF']; 
+		var proj_xitor_type;
+		var cand_xitor_type;
+		var vre_xitor_type;
+		var tenant_xitor_type;
+		var autoris;
+
+		function getParam() {
+			let strUrlParam = window.location.search.replace( '?', '').split('&');
+			
+			for (var i = 0; i < strUrlParam.length; i++) {
+				var str_param = strUrlParam[i].split('=');
+				if (str_param[0] === 'autoris' && str_param[1]){
+					autoris = decodeURIComponent(str_param[1]);
+				}
+				/*
+				Вкрутить потом для мобилити
+				if(str_param[0] === 'url' && str_param[1]){
+					 baseurl +="https://" + decodeURIComponent(str_param[1]) + ".mobilitie.com/api/v3/";
+ 				}*/
+				if (str_param[0] === 'cand_xitor_type' && str_param[1]) {
+					cand_xitor_type = decodeURIComponent(str_param[1]);
+					arreyFields.push(cand_xitor_type + '.C_CANDIDATE_NAME');
+					arreyFields.push(cand_xitor_type + '.C_HIGHEST_AVAILABLE_TOWER_H');
+					arreyFields.push(cand_xitor_type + '.C_TOTAL_POLE_HT_W_ANT_FT');
+				}
+				if (str_param[0] === 'proj_xitor_type') {
+					proj_xitor_type = decodeURIComponent(str_param[1]);
+					arreyFields.push(proj_xitor_type + '.XITOR_KEY');
+					arreyFields.push(proj_xitor_type + '.PRJ_RELATED_TENANT_ID');
+				}
+				if (str_param[0] === 'vre_xitor_type' && str_param[1]) {
+					vre_xitor_type = decodeURIComponent(str_param[1]);
+				}
+				if (str_param[0] === 'tenant_xitor_type' && str_param[1]) {
+					tenant_xitor_type = decodeURIComponent(str_param[1]);
+				}
+				if (str_param[0] === 'cand_xitor_key') {
+					var cand_xitor_key = decodeURIComponent(str_param[1])
+				}
+			}
+			baseurl = BASE_URL + '/api/v3/';
+			getDataViaApi(autoris, baseurl, cand_xitor_type, vre_xitor_type, cand_xitor_key);
+		}
+		
+		function getDataViaApi(logPass, baseurl, cand_xitor_type, vre_xitor_type, cand_xitor_key) {
+			let vUrlValueFields = baseurl + 'trackor_types/' + vre_xitor_type + '/trackors';
+			let strPasLog = "Basic " + logPass;
+
+			let dataForApi = {};
+			dataForApi['fields'] = arreyFields.join(',');
+			dataForApi[cand_xitor_type + '.XITOR_KEY'] = cand_xitor_key;
+			
+    		jQuery.ajax({
+				method: "GET",
+				url: vUrlValueFields,
+				headers: {
+					"Accept": "application/json",
+					"Authorization": strPasLog
+				},
+				data: dataForApi,
+				success: function(data) {
+					if(data.length > 0) {
+						tenantKeySearch(data);
+					} 					
+				}
+			});
+		}
+		
+		function tenantKeySearch(dataFieldValue) {
+			let strTenants = '';
+			for (let dataObj in dataFieldValue) {
+				//формируем строку с key через запятую
+				if (dataFieldValue[dataObj][proj_xitor_type + '.PRJ_RELATED_TENANT_ID']) {
+					strTenants += dataFieldValue[dataObj][proj_xitor_type + '.PRJ_RELATED_TENANT_ID'] + ', ';
+				}
+			}
+			if (strTenants) {
+				strTenants = strTenants.substr(0, strTenants.length - 2);
+				getDataTenantViaApi(strTenants, dataFieldValue);
+			} else {
+				//нет связанного Tenant, нечего получать, переходим к формированию единого объекта
+				creationSingleObject(null, dataFieldValue);
+			}
+		}
+
+		function getDataTenantViaApi(strTenants, dataFieldValue) {
+			var vUrlValueFields = baseurl + 'trackor_types/' + tenant_xitor_type + '/trackors';
+			var strPasLog = "Basic " + autoris;
+
+			jQuery.ajax({
+				method: "GET",
+				url: vUrlValueFields,
+				headers: {
+					"Accept": "application/json",
+					"Authorization": strPasLog
+				},
+				data: {
+					fields: ARREY_TENANT_FIELDS.join(','),
+					xitor_key: strTenants
+				},
+				success: function(data) {
+					creationSingleObject(data, dataFieldValue);
+				}
+			});
+		}
+		
+		function creationSingleObject(dataTenant, dataBasic) {
+			for(let dataBasicObj in dataBasic) {
+				//let fieldsOfBasicData = dataBasic[dataBasicObj];
+				let tenantKey = dataBasic[dataBasicObj][proj_xitor_type + '.PRJ_RELATED_TENANT_ID'];
+				if (tenantKey) {
+					for(let dataTenantObj in dataTenant) {
+						let fieldsOfTenantData = dataTenant[dataTenantObj];
+						if (fieldsOfTenantData['TRACKOR_KEY'] === tenantKey) {
+							for (tenantField in ARREY_TENANT_FIELDS) {
+								let fieldName = ARREY_TENANT_FIELDS[tenantField];
+								if (fieldName !== 'XITOR_KEY') {
+									dataBasic[dataBasicObj][tenant_xitor_type + '.' + fieldName] = fieldsOfTenantData[fieldName];
+								}
+							}
+						}
+					}
+				}
+			}
+			//переход к формированию диаграммы
+			draw(dataBasic);
+		}
+
+		function draw(dataFields) {
+
+			let captionCand = document.getElementById("pCaption");
+			captionCand.textContent = dataFields[0][cand_xitor_type + '.C_CANDIDATE_NAME'];
+
+			// доступная для отрисовки высота
+			//правая нижняя точка средней части (50 - место для нижней части)
+			//минус сдвиг средней части (40) и отступ (M10 10)
+			let availableHeight = getAvailableHeight();
+			let availableCentralHeight = availableHeight - 50 - 50;
+			let centralPart = document.getElementById('centralPart');
+			let centralPartArrD = centralPart.getAttribute('d').split(' ');
+			centralPartArrD[12] = String(availableCentralHeight);
+			centralPartArrD[15] = String(availableCentralHeight + 5);
+			centralPartArrD[17] = String(availableCentralHeight);
+			centralPartArrD[20] = String(availableCentralHeight);
+			centralPart.setAttribute('d', centralPartArrD.join(' '));
+
+			let bottomPart = document.getElementById('bottomPart');
+			let bottomPartTranslate = 'translate(0,' + (availableCentralHeight + 30) + ')';
+			bottomPart.setAttribute('transform', bottomPartTranslate);
+
+			let svgVreTower = document.getElementById("svgVreTower");
+			let svgVreTowerVB = svgVreTower.getAttribute("viewBox").split(" ");
+			svgVreTowerVB[3] = String(availableHeight);
+			svgVreTower.setAttribute("viewBox", svgVreTowerVB.join(" "));
+			svgVreTower.setAttribute("height", availableHeight);
+
+			let svgTower = document.getElementById("svgTower");
+			let svgTowerVB = svgTower.getAttribute("viewBox").split(" ");
+			svgTowerVB[3] = String(availableHeight - 10);
+			svgTower.setAttribute("viewBox", svgTowerVB.join(" "));
+			svgTower.setAttribute("height", availableHeight - 10);
+			
+			addTotalPoleDivision(dataFields);
+
+			//60 (отступ с 2х стороной средней части)
+			let avaliableHeightForDivisions = availableCentralHeight - 60;
+			//50 - высота верхней части; 30 - отступ от края средней части
+			let minLineVreY = 50 + 10 + 60 / 2;
+			let maxLineVreY = minLineVreY + avaliableHeightForDivisions;
+
+			//30 px (примерная высота текста для шкалы)
+			let maxNumOfNums = avaliableHeightForDivisions / 30;
+
+			/*надо понять, какой график рисовать:
+			1. определить цену деления
+			2. в зависимости от разницы между наивысшем значением и последней высотой
+			*/
+			let maxTopValue = maxValueSearch(dataFields);
+			let minBottomValue = minValueSearch(dataFields);
+			let difference = maxTopValue - minBottomValue;
+			let initialValOfDivision = difference / maxNumOfNums;
+			//цена деления кратная 5
+			let valOfDivision = getValOfDivision(initialValOfDivision);
+			// проходим от стартового значения кратного 5 с шагом в valueOfDivision, пока не превысится максимальное значение
+			let minMultipleOfFive = getMinMultipleOfFive(minBottomValue);
+			let numOfGaps = Math.ceil((maxTopValue - minMultipleOfFive) / valOfDivision);
+			let divisionHeight = avaliableHeightForDivisions / numOfGaps
+			addDivisions(minMultipleOfFive, maxTopValue, valOfDivision, maxLineVreY, divisionHeight, numOfGaps);
+			let maxDivisionValue = numOfGaps * valOfDivision + minMultipleOfFive;
+			addRectangle(dataFields, numOfGaps * valOfDivision, avaliableHeightForDivisions, maxDivisionValue);
+			addHighestAvailableTower(dataFields, numOfGaps * valOfDivision, avaliableHeightForDivisions, maxDivisionValue);
+		}
+
+		function getValOfDivision(initialValOfDivision) {
+			let valOfDivision = Math.ceil(initialValOfDivision);
+			do {
+				valOfDivision ++;
+			} while (valOfDivision % 5 > 0); 
+
+			return valOfDivision;
+		}
+
+		function getMinMultipleOfFive(minValue) {
+			minValue = Math.floor(minValue);
+			while (minValue % 5 > 0) {
+				minValue --;
+			}
+			return minValue;
+		}
+
+		function addTotalPoleDivision(dataFields) {
+			let totalPole = dataFields[0][cand_xitor_type + '.C_TOTAL_POLE_HT_W_ANT_FT'];
+			//10 - y для svgTower; + 10 - отступ рисования (M 10 10)
+			drawDivision(totalPole, 20);
+		}
+
+		function addHighestAvailableTower(dataTrackors, differenceMaxMinVal, avaliableHeightForDivisions, maxDivisionValue) {
+			let highestAvailableTower = dataTrackors[0][cand_xitor_type + '.C_HIGHEST_AVAILABLE_TOWER_H'];
+			if(highestAvailableTower) {
+				if (maxDivisionValue >= highestAvailableTower) {
+					let lineY = (maxDivisionValue - highestAvailableTower) * avaliableHeightForDivisions / differenceMaxMinVal + 90;
+
+					let line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+					line.setAttribute('stroke', 'red');
+					line.setAttribute('stroke-width', '2');
+					line.setAttribute('x1', '50');
+					//10px - длина линии
+					line.setAttribute('x2', '185');
+					line.setAttribute('y1', lineY);
+					line.setAttribute('y2', lineY);
+
+					svgVreTower.appendChild(line);
+				}
+			}
+			creatingTrReference(highestAvailableTower, 'Highest Available Height', null, 'highestAvailableTowerF', 'highestAvailableTowerS');
+		}
+
+		function addDivisions(minValue, maxValue, valOfDivision, maxLineVreY, divisionHeight, numOfGaps) {
+			let currentValue = minValue;
+			let currentLineVreY = maxLineVreY;
+
+			for(let i = 0; i <= numOfGaps; i ++) {
+				drawDivision(String(currentValue), currentLineVreY);
+				currentValue += valOfDivision;
+				currentLineVreY -= divisionHeight;
+			}
+		}
+
+		//передаем текст и y на котором должна оказаться черта в координатах svgVRE; по x смещение высчитывается
+		function drawDivision(textValue, lineVreY) {
+			let lineWidth = 10;
+
+			let g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+			svgVreTower.appendChild(g);
+
+			let text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+			text.setAttributeNS(null, 'font', '20px');
+			text.setAttributeNS(null, 'x', '0');
+			text.setAttributeNS(null, 'y', '21');
+			text.textContent = textValue;
+				
+			g.appendChild(text);
+
+			let textWidth = text.getBBox().width;
+			let textHeight = Math.ceil(text.getBBox().height);
+			
+			//40 - отступ вышки по x; + 10 - отступ по рисованию (M10 10) = 50
+			let offsetX = 50 - lineWidth - textWidth;
+
+			let line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+			line.setAttribute('stroke', 'black');
+			line.setAttribute('stroke-width', '1');
+			line.setAttribute('x1', textWidth);
+			//10px - длина линии
+			line.setAttribute('x2', textWidth + lineWidth);
+			line.setAttribute('y1', (textHeight + 6) / 2);
+			line.setAttribute('y2', (textHeight + 6) / 2);
+
+			g.appendChild(line);
+			let translateG = "translate(" + offsetX + "," + (lineVreY - (textHeight + 6) / 2)  + ")";
+			g.setAttributeNS(null, "transform", translateG);
+		}
+
+		function addRectangle(dataTrackors, differenceMaxMinVal, avaliableHeightForDivisions, maxDivisionValue) {
+			let colorIndex = -1;
+			for(let dataTrackor in dataTrackors) {
+				colorIndex = (colorIndex < COLORS.length - 1) ? ++colorIndex : 0;
+
+				let vreBottomHeigt = dataTrackors[dataTrackor]['VRE_BOTTOM_HEIGHT'];
+				let vreTopHeight = dataTrackors[dataTrackor]['VRE_TOP_HEIGHT'];
+				if (vreBottomHeigt && vreTopHeight) {
+					//90px - у для высшего деления
+					let rectY = (maxDivisionValue - vreTopHeight) * avaliableHeightForDivisions / differenceMaxMinVal + 90;
+
+					let vreHeight = vreTopHeight - vreBottomHeigt;
+					let rectHeight = vreHeight * avaliableHeightForDivisions / differenceMaxMinVal;
+					//вызов отрисовки прямоугольника
+					drawRectangle(rectY, rectHeight, COLORS[colorIndex]);
+				}
+				//добавление значений в талицу	
+				textForFirstColumn = vreTopHeight + ' - ' + vreBottomHeigt + ' ft';	
+				textForSecontColumn = dataTrackors[dataTrackor]['TRACKOR_KEY'] + ' ' + dataTrackors[dataTrackor]['VRE_STATUS'];
+				creatingTrReference(textForFirstColumn, textForSecontColumn, COLORS[colorIndex], 'h', 'd');
+				
+				let projectId = dataTrackors[dataTrackor][proj_xitor_type + '.TRACKOR_KEY'];
+				if(projectId) {
+					creatingTrReference('Project ID', projectId, null, 'childRefFirst', 'childRefSecond');
+
+					let tenantCategoryAndId= dataTrackors[dataTrackor][tenant_xitor_type + '.T_TENANT_CATEGORY_AND_ID'];
+					if(tenantCategoryAndId) {
+						creatingTrReference('Tenant Category and ID', tenantCategoryAndId, null, 'childRefFirst', 'childRefSecond');
+					}
+
+					let tenantCategoryCode = dataTrackors[dataTrackor][tenant_xitor_type + '.T_CARRIER_CATEGORY_CODE'];
+					if(tenantCategoryCode) {
+						creatingTrReference('Tenant Entity Category Code', tenantCategoryCode, null, 'childRefFirst', 'childRefSecond');
+					}
+				}
+			}
+		}
+
+		function drawRectangle(rectY, rectHeight, color) {
+			let rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+	
+			rect.setAttribute('x', '95');
+			rect.setAttribute('y', rectY);
+			rect.setAttribute('width', '90');
+			rect.setAttribute('height', rectHeight);
+			rect.style.fill = color;
+
+			svgVreTower.appendChild(rect);
+		}
+
+		function creatingTrReference(textFirst, textSecond, color, classFirst, classSecond) {
+			let tblReference = document.getElementById('tblReference');
+
+			let rowReference = document.createElement('TR');
+				
+			let tdFirst = document.createElement('TD');
+			tdFirst.setAttribute('class', classFirst);
+			tdFirst.style.backgroundColor = color;
+			tdFirst.appendChild(document.createTextNode(textFirst));
+			rowReference.appendChild(tdFirst);
+			
+			let tdSecond = document.createElement('TD');
+			tdSecond.setAttribute("class", classSecond);
+			tdSecond.appendChild(document.createTextNode(textSecond));
+			rowReference.appendChild(tdSecond);
+			
+			tblReference.appendChild(rowReference);
+		}
+
+		function getAvailableHeight() {
+			let pCaption = document.getElementById("pCaption");
+			let pCaptionIndent = pCaption.getBoundingClientRect();
+			let divDiagram = document.getElementById("divDiagram");
+			let divDiagramIndent = divDiagram.getBoundingClientRect();
+			
+			let availableHeight = document.documentElement.clientHeight - pCaptionIndent.top - pCaptionIndent.height - divDiagramIndent.top;
+			return availableHeight;
+		}
+
+		function maxValueSearch(dataTrackors){
+			let maxValue = 0;
+			for (let trckorObj in dataTrackors){
+				if (dataTrackors[trckorObj]['VRE_TOP_HEIGHT']) {
+					let topValue = Number(dataTrackors[trckorObj]['VRE_TOP_HEIGHT']);
+					maxValue = checkedMax(topValue, maxValue);
+				}
+			}
+			return maxValue;
+		}
+		
+		function checkedMax(fieldValue, maxValue) {
+			if (fieldValue && fieldValue > maxValue) {
+				maxValue = fieldValue;
+			}
+			return maxValue;
+		}
+
+		function minValueSearch(dataTrackors){
+			let minValue = Number.MAX_VALUE;
+			for (let trckorObj in dataTrackors){
+				let bottomValue = Number(dataTrackors[trckorObj]['VRE_BOTTOM_HEIGHT']);
+				minValue = checkedMin(bottomValue, minValue);
+			}
+			return minValue;
+		}
+		
+		function checkedMin(fieldValue, minValue) {
+			if (fieldValue && fieldValue < minValue) {
+				minValue = fieldValue;
+			}
+			return minValue;
+		}
+
+	</script>
+
+    <style type="text/css">
+		body {
+			display:flex;
+			flex-direction: row;
+			font-size: 20px;
+			padding: 0;
+			margin: 0;
+			position: absolute;
+			top: 0;
+			bottom: 0;
+			right: 0;
+			left: 0;
+		}
+        .diagram {
+			overflow: auto;
+			flex-grow: 1;
+            margin-top: 0.5em;
+        }
+		.heights {
+			overflow: auto;
+			flex-grow: 0;
+			flex-shrink: 0;
+			width: 50%;
+		}
+        .heights table {
+            border-spacing: 1em;
+        }
+        .heights td.h {
+            border: 0.1em solid black;
+            font-weight: bold;
+			white-space: nowrap;
+			text-align: center;
+        }
+        .heights td.hh {
+            padding: 0.4em 0.6em; 
+            font-weight: bold;
+			white-space: nowrap;
+        }
+        .heights td.d {
+			font-weight: bold;
+        }
+		.heights td.childRefFirst {
+			padding-left: 1em;
+			font-size: 18px;
+			white-space: nowrap;
+		}
+		.heights td.childRefSecond {
+			font-size: 18px;
+		}
+		.heights td.highestAvailableTowerF {
+			color: red;
+			font-weight: bold;
+			text-align: center;
+		}
+		.heights td.highestAvailableTowerS {
+			color: red;
+			font-weight: bold;
+		}
+    </style>
+
+</head>
+<body onload="getParam()">
+<div class="diagram" align="center" id="divDiagram">
+	<p id="pCaption" style="margin:0px;font-style:normal;font-weight:normal;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.07731885">VSE Diagram</p>
+	<svg id="svgVreTower" viewBox="0 0 200 667" width = "200" height = "667" style="position:relative;" xmlns="http://www.w3.org/2000/svg" version="1.0" encoding="UTF-8" standalone="no">
+		
+		<svg id = "svgTower" viewBox="0 0 60 667" width = "60" height = "667" x = "40" y = "10" style="position: absolute;" >
+
+			<path id = 'topPart'
+					d='M10 10 H 50
+						V 50
+						Q 40 55, 30 50 T 10 50
+						Z'
+					stroke='black'
+					fill='#FFD700'/>
+
+			<path id='centralPart'
+					d='M 10 15 Q 20 10 30 15 T 50 15 V 100 Q 40 105 30 100 T 10 100 Z'
+					stroke='black'
+					transform="translate(0, 40)"
+					fill='#FFD700'/>
+
+			<path id = 'bottomPart'
+					d='M10 15 Q 20 10, 30 15 T 50 15
+						V 55
+						H 10
+						Z'
+					stroke='black'
+					transform="translate(0, 130)"
+					fill='#FFD700'/>
+		</svg>
+		
+	</svg>
+</div>
+<div id="divTblReference" class="heights">
+    <table id="tblReference">
+        <tbody>
+            <tr>
+                <td class="hh">top - bottom ft</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+</body>
+</html>
